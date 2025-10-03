@@ -77,9 +77,13 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2){
+    // Track CPU time for the currently running process
+    if(myproc() != 0 && myproc()->state == RUNNING) {
+        myproc()->cputime++;  // Increment CPU time for running process
+    }
     yield();
-
+  }
   usertrapret();
 }
 
