@@ -120,6 +120,7 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  p->priority = 20;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -440,27 +441,51 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-  
+  struct proc *highest_priority_proc = 0;
+  int highest_priority = -1;  
+
   c->proc = 0;
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
 
+    highest_priority_proc = 0;
+    highest_priority = -1;
+
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
+	//if havent found runnable process, or has higher priority
+	if(highest_priority_proc == 0 || p->priority > highest_priority) {
+          //release previous highest priority process lock if it exists
+	  if(highest_priority_proc != 0){
+	    release(&highest_priority_proc->lock);
+	  }
+          highest_priority_proc = p;
+	  highest_priority = p->priority;
+          } else {
+	    //process doesnt have higher priority. release its lock
+            release(&p->lock);
+          }
+        } else{
+	//process not runnable. release its lock
+        release(&p->lock);
+      }
+    }
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
         // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
+      if(highest_priority_proc != 0){
+	if(highest_priority_proc->state == RUNNABLE){
+	highest_priority_proc->state = RUNNING;
+        c->proc = highest_priority_proc;;
+        swtch(&c->context, &highest_priority_proc->context);
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
       }
-      release(&p->lock);
+      release(&highest_priority_proc->lock);
     }
   }
 }
@@ -680,6 +705,7 @@ procinfo(uint64 addr)
       procinfo.ppid = 0;
     for (int i=0; i<16; i++)
       procinfo.name[i] = p->name[i];
+    procinfo.priority = p->priority;	//copy priority to user struct
    if (copyout(thisproc->pagetable, addr, (char *)&procinfo, sizeof(procinfo)) < 0)
       return -1;
     addr += sizeof(procinfo);

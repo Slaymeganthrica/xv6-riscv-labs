@@ -108,3 +108,23 @@ sys_getprocs(void)
   return(procinfo(addr));
 }
 
+uint64
+sys_getpriority(void){
+  return myproc()->priority; 
+}
+
+uint64
+sys_setpriority(void){
+  int priority;
+
+  //get priority argument from user space
+  if(argint(0, &priority) < 0)
+    return -1;
+
+  //validation
+  if(priority < 0 || priority > 63)
+    return -1;
+
+  myproc()->priority = priority;
+  return 0; //success
+}
