@@ -45,12 +45,15 @@ int main(int argc, char **argv)
     int nprocs;
     int i;
     char *state;
+    uint current_ticks;
 
     nprocs = getprocs(uproc);
     if (nprocs < 0)
         exit(-1);
 
-    printf("pid\tstate\t\tpriority\tsize\tppid\tname\n");
+    current_ticks = uptime();	//get current time for age calculation
+
+    printf("pid\tstate\t\tsize\tppid\tpriority\tage\tname\n");
     for (i = 0; i < nprocs; i++)
     {
         switch(uproc[i].state) {
@@ -60,9 +63,21 @@ int main(int argc, char **argv)
             case ZOMBIE: state = "zombie  "; break;
             default: state = "unknown "; break;
         }
-        printf("%d\t%s\t%d\t\t%d\t%d\t%s\n", 
-               uproc[i].pid, state, uproc[i].priority,
-               uproc[i].size, uproc[i].ppid, uproc[i].name);
+
+	if(uproc[i].state == RUNNABLE){
+	  uint age = current_ticks - uproc[i].readytime;
+        printf("%d\t%s\t%d\t%d\t%d\t\t%d\t%s\n", 
+               uproc[i].pid, state, uproc[i].size, uproc[i].ppid,
+               uproc[i].priority, age, uproc[i].name);
+	} else{
+	   printf("%d\t%s\t%d\t%d\t%d\t\tN/A\t%s\n",
+		  uproc[i].pid, state, uproc[i].size, uproc[i].ppid,
+		  uproc[i].priority, uproc[i].name); 
+	}
+	/*uint age = current_ticks - uproc[i].readytime;
+	printf("%d\t%s\t%d\t%d\t%d\t\t%d\t(readytime=%d)\t%s\n",
+		uproc[i].pid, state, uproc[i].size, uproc[i].ppid,
+		uproc[i].priority, age, uproc[i].readytime, uproc[i].name);*/
     }
 
     exit(0);

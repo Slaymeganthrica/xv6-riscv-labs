@@ -6,6 +6,7 @@
 #include "proc.h"
 #include "defs.h"
 #include "pstat.h"
+#include "types.h"
 
 struct cpu cpus[NCPU];
 
@@ -120,7 +121,8 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
-  p->priority = 20;
+  p->priority = 20;	//initialize priority
+  p->readytime = 0;	//initialize readytime
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -315,6 +317,7 @@ fork(void)
 
   acquire(&np->lock);
   np->state = RUNNABLE;
+  np->readytime = ticks;	//set readytime for new child process
   release(&np->lock);
 
   return pid;
@@ -443,6 +446,7 @@ scheduler(void)
   struct cpu *c = mycpu();
   struct proc *highest_priority_proc = 0;
   int highest_priority = -1;  
+  int effective_priority;
 
   c->proc = 0;
   for(;;){
@@ -455,14 +459,25 @@ scheduler(void)
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
+
+	//calculate effective priority with aging
+	int age_bonus = (ticks - p->readytime) / AGING_DIV;
+	effective_priority = p->priority + age_bonus;
+
+	//make sure effective priority doesnt go too high
+	if(effective_priority > MAXEFFPRIORITY){
+	  effective_priority = MAXEFFPRIORITY;
+	}
+
+	//printf("DEBUG: Found RUNNABLE process %d with priority %d\n", p->pid, p->priority); //debug
 	//if havent found runnable process, or has higher priority
-	if(highest_priority_proc == 0 || p->priority > highest_priority) {
+	if(highest_priority_proc == 0 || effective_priority > highest_priority) {
           //release previous highest priority process lock if it exists
 	  if(highest_priority_proc != 0){
 	    release(&highest_priority_proc->lock);
 	  }
           highest_priority_proc = p;
-	  highest_priority = p->priority;
+	  highest_priority = effective_priority;
           } else {
 	    //process doesnt have higher priority. release its lock
             release(&p->lock);
@@ -478,7 +493,8 @@ scheduler(void)
       if(highest_priority_proc != 0){
 	if(highest_priority_proc->state == RUNNABLE){
 	highest_priority_proc->state = RUNNING;
-        c->proc = highest_priority_proc;;
+        c->proc = highest_priority_proc;
+	highest_priority_proc->readytime = 0;  //reset readytime
         swtch(&c->context, &highest_priority_proc->context);
 
         // Process is done running for now.
@@ -524,6 +540,7 @@ yield(void)
   struct proc *p = myproc();
   acquire(&p->lock);
   p->state = RUNNABLE;
+  p->readytime = ticks;	//update readytime when yielding CPU
   sched();
   release(&p->lock);
 }
@@ -592,6 +609,8 @@ wakeup(void *chan)
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
+	p->readytime = ticks;	//set readytime to current ticks
+	//printf("DEBUG: Process %d became RUNNABLE at tick %d\n", p->pid, ticks); //debug
       }
       release(&p->lock);
     }
@@ -706,6 +725,7 @@ procinfo(uint64 addr)
     for (int i=0; i<16; i++)
       procinfo.name[i] = p->name[i];
     procinfo.priority = p->priority;	//copy priority to user struct
+    procinfo.readytime = p->readytime;  //copy readytime to user struct
    if (copyout(thisproc->pagetable, addr, (char *)&procinfo, sizeof(procinfo)) < 0)
       return -1;
     addr += sizeof(procinfo);
