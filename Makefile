@@ -140,7 +140,6 @@ UPROGS=\
 	$U/_task2\
 	$U/_pexec\
 	$U/_task4\
-	$U/_aging\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
