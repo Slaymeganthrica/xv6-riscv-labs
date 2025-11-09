@@ -23,6 +23,7 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+uint64 freepmem(void);
 
 // ulib.c
 int stat(const char*, struct stat*);
@@ -35,7 +36,7 @@ void printf(const char*, ...);
 char* gets(char*, int max);
 uint strlen(const char*);
 void* memset(void*, int, uint);
-void* malloc(uint);
+void* malloc(uint64);
 void free(void*);
 int atoi(const char*);
 int memcmp(const void *, const void *, uint);

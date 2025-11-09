@@ -46,11 +46,15 @@ usertrap(void)
   w_stvec((uint64)kernelvec);
 
   struct proc *p = myproc();
+
+  uint64 scause = r_scause();
+  uint64 va = r_stval();
+
   
   // save user program counter.
   p->trapframe->epc = r_sepc();
   
-  if(r_scause() == 8){
+  if(scause == 8){
     // system call
 
     if(p->killed)
@@ -67,6 +71,34 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  
+  } else if(scause == 13 || scause == 15){
+    // load page fault (13) or store page fault (15)
+    // lazy allocation of a heap page
+
+    // if the faulting address is outside the process size, kill it
+    if(va >= p->sz){
+      printf("usertrap(): page fault va %p >= sz %p\n", va, p->sz);
+      p->killed = 1;
+    } else {
+      // round down to page boundary
+      uint64 va_page = PGROUNDDOWN(va);
+
+      char *mem = kalloc();
+      if(mem == 0){
+        printf("usertrap(): kalloc failed\n");
+        p->killed = 1;
+      } else {
+        memset(mem, 0, PGSIZE);
+        if(mappages(p->pagetable, va_page, PGSIZE, (uint64)mem,
+                    PTE_R | PTE_W | PTE_U) != 0){
+          printf("usertrap(): mappages failed\n");
+          kfree(mem);
+          p->killed = 1;
+        }
+      }
+    }
+
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
