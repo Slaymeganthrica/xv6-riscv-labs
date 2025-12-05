@@ -113,3 +113,134 @@ sys_freepmem(void)
   uint64 pages = kfreepages_count();
   return pages * PGSIZE;
 }
+
+//--semaphore system calls--
+
+// read a semaphore ID from user memory and return the kernel semaphore pointer.
+static struct semaphore*
+get_sem(uint64 uaddr)
+{
+  struct proc *p = myproc();
+  int id;
+
+  // copy integer (sem_t) from user space → kernel variable
+  if(copyin(p->pagetable, (char *)&id, uaddr, sizeof(id)) < 0)
+    return 0;
+
+  // check bounds
+  if(id < 0 || id >= NSEM)
+    return 0;
+
+  // check if this semaphore is actually valid
+  if(semtable.sem[id].valid == 0)
+    return 0;
+
+  return &semtable.sem[id];
+}
+
+
+// sem_init(sem_t *sem, int pshared, unsigned int value)
+
+uint64
+sys_sem_init(void)
+{
+  struct proc *p = myproc();
+  uint64 uaddr;     // user pointer to sem_t
+  int pshared;      // ignored
+  int value;        // initial semaphore count
+  int id;           // index in semtable
+
+  // read arguments from user space
+  argaddr(0, &uaddr);
+  argint(1, &pshared);
+  argint(2, &value);
+
+  // allocate a new semaphore
+  id = semalloc();
+  if(id < 0)
+    return -1;
+
+  // initialize the kernel semaphore entry
+  acquire(&semtable.sem[id].lock);
+  semtable.sem[id].count = value;
+  release(&semtable.sem[id].lock);
+
+  // write the semaphore ID back to user space
+  if(copyout(p->pagetable, uaddr, (char *)&id, sizeof(id)) < 0){
+    semdealloc(id);
+    return -1;
+  }
+
+  return 0;
+}
+
+// sem_wait(sem_t *sem) — block until count > 0
+uint64
+sys_sem_wait(void)
+{
+  uint64 uaddr;
+  struct semaphore *s;
+
+  argaddr(0, &uaddr);
+  s = get_sem(uaddr);
+  if(s == 0)
+    return -1;
+
+  acquire(&s->lock);
+
+  // if count is 0, sleep until someone posts
+  while(s->count == 0){
+    sleep(s, &s->lock);
+  }
+
+  // a resource is now available
+  s->count--;
+
+  release(&s->lock);
+  return 0;
+}
+
+// sem_post(sem_t *sem) — increment count, wake waiters
+uint64
+sys_sem_post(void)
+{
+  uint64 uaddr;
+  struct semaphore *s;
+
+  argaddr(0, &uaddr);
+  s = get_sem(uaddr);
+  if(s == 0)
+    return -1;
+
+  acquire(&s->lock);
+  s->count++;
+  wakeup(s);   // wake sleeping threads
+  release(&s->lock);
+
+  return 0;
+}
+
+// sem_destroy(sem_t *sem) — mark unused
+uint64
+sys_sem_destroy(void)
+{
+  struct proc *p = myproc();
+  uint64 uaddr;
+  int id;
+
+  argaddr(0, &uaddr);
+
+  // read integer from user
+  if(copyin(p->pagetable, (char *)&id, uaddr, sizeof(id)) < 0)
+    return -1;
+
+  if(id < 0 || id >= NSEM)
+    return -1;
+
+  // cannot destroy invalid semaphore
+  if(semtable.sem[id].valid == 0)
+    return -1;
+
+  semdealloc(id);
+  return 0;
+}
